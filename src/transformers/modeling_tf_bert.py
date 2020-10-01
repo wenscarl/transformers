@@ -26,6 +26,9 @@ from .file_utils import MULTIPLE_CHOICE_DUMMY_INPUTS, add_start_docstrings, add_
 from .modeling_tf_utils import TFPreTrainedModel, get_initializer, keras_serializable, shape_list
 from .tokenization_utils import BatchEncoding
 
+from probe import Probe as d9mdebug
+from probe_callback import ProbeCallback as D9mDebugCallback
+
 
 logger = logging.getLogger(__name__)
 
@@ -168,14 +171,27 @@ class TFBertEmbeddings(tf.keras.layers.Layer):
         if token_type_ids is None:
             token_type_ids = tf.fill(input_shape, 0)
 
+        input_ids = d9mdebug.monitor(input_ids, 'input_ids_before_gather')
+
         if inputs_embeds is None:
-            inputs_embeds = tf.gather(self.word_embeddings, input_ids)
+#           inputs_embeds = tf.gather(self.word_embeddings, input_ids)
+            inputs_embeds = tf.dtypes.cast(tf.one_hot(input_ids,
+                                           self.word_embeddings.shape[0]),
+                                           self.word_embeddings.dtype) @
+                                           self.word_embeddings
+
+        inputs_embeds = d9mdebug.monitor(inputs_embeds,
+                                         'inputs_embeds_after_gather')
+
         position_embeddings = self.position_embeddings(position_ids)
         token_type_embeddings = self.token_type_embeddings(token_type_ids)
 
         embeddings = inputs_embeds + position_embeddings + token_type_embeddings
+        embeddings = d9mdebug.monitor(embeddings, 'ebd1')
         embeddings = self.LayerNorm(embeddings)
+        embeddings = d9mdebug.monitor_keras(embeddings, 'ebd2', tf_keras=True)
         embeddings = self.dropout(embeddings, training=training)
+        embeddings = d9mdebug.monitor_keras(embeddings, 'ebd3', tf_keras=True)
         return embeddings
 
     def _linear(self, inputs):
@@ -377,6 +393,7 @@ class TFBertEncoder(tf.keras.layers.Layer):
 
             layer_outputs = layer_module([hidden_states, attention_mask, head_mask[i]], training=training)
             hidden_states = layer_outputs[0]
+            hidden_states = d9mdebug.monitor(hidden_states, 'layer_mod_hidden_states_%d' %(i))
 
             if self.output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
@@ -568,11 +585,28 @@ class TFBertMainLayer(tf.keras.layers.Layer):
             head_mask = [None] * self.num_hidden_layers
             # head_mask = tf.constant([0] * self.num_hidden_layers)
 
+        if position_ids is not None:
+            position_ids = d9mdebug.monitor(position_ids, 'position_ids')
+
+        if inputs_embeds is not None:
+            inputs_embeds = d9mdebug.monitor(inputs_embeds, 'inputs_embeds')
+
+        input_ids = d9mdebug.monitor_keras(input_ids, 'input_ids',tf_keras=True)
+
+        token_type_ids = d9mdebug.monitor_keras(token_type_ids,
+                                               'token_type_ids', tf_keras=True)
+        attention_mask = d9mdebug.monitor_keras(attention_mask,
+                                               'attention_mask', tf_keras=True)
+
         embedding_output = self.embeddings([input_ids, position_ids, token_type_ids, inputs_embeds], training=training)
+        embedding_output = d9mdebug.monitor_keras(embedding_output,
+                                                 'embedding_output', tf_keras=True)
         encoder_outputs = self.encoder([embedding_output, extended_attention_mask, head_mask], training=training)
 
         sequence_output = encoder_outputs[0]
         pooled_output = self.pooler(sequence_output)
+        pooled_output = d9mdebug.monitor_keras(pooled_output,
+                                              'pooled_outputs', tf_keras=True)
 
         outputs = (sequence_output, pooled_output,) + encoder_outputs[
             1:
@@ -926,7 +960,10 @@ class TFBertForSequenceClassification(TFBertPreTrainedModel):
         pooled_output = outputs[1]
 
         pooled_output = self.dropout(pooled_output, training=kwargs.get("training", False))
+        pooled_output = d9mdebug.monitor_keras(pooled_output,
+                                              'pooled_output_call', tf_keras=True)
         logits = self.classifier(pooled_output)
+        logits = d9mdebug.monitor_keras(logits, 'logits_call', tf_keras=True)
 
         outputs = (logits,) + outputs[2:]  # add hidden states and attention if they are here
 
