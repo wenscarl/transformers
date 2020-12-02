@@ -174,11 +174,14 @@ class TFBertEmbeddings(tf.keras.layers.Layer):
         input_ids = d9mdebug.monitor(input_ids, 'input_ids_before_gather')
 
         if inputs_embeds is None:
-#           inputs_embeds = tf.gather(self.word_embeddings, input_ids)
-            inputs_embeds = tf.dtypes.cast(tf.one_hot(input_ids,
-                                           self.word_embeddings.shape[0]),
-                                           self.word_embeddings.dtype) @
-                                           self.word_embeddings
+            # inputs_embeds = tf.gather(self.word_embeddings, input_ids)
+            # Note: op `tf.gather` exposes to GPU-nond9m issue due to
+            # op `segment_sum` or `unsorted_segment_sum`. As a temporary remedy,
+            # a mathematically equivalent operation is employed herein.
+           inputs_embeds = tf.dtypes.cast(
+                tf.one_hot(input_ids, self.word_embeddings.shape[0]),
+                self.word_embeddings.dtype) @ self.word_embeddings
+
 
         inputs_embeds = d9mdebug.monitor(inputs_embeds,
                                          'inputs_embeds_after_gather')
@@ -1216,3 +1219,4 @@ class TFBertForQuestionAnswering(TFBertPreTrainedModel):
         outputs = (start_logits, end_logits,) + outputs[2:]
 
         return outputs  # start_logits, end_logits, (hidden_states), (attentions)
+
